@@ -1,0 +1,59 @@
+.prompts {
+  .columns {
+    display: grid;
+    grid-template-columns: 260px minmax(0, 1fr);
+    gap: 16px;
+    align-items: start;
+    margin-top: 12px;
+  }
+
+  .list {
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    .item {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0;
+      text-align: left;
+      background: transparent;
+      border-color: transparent;
+      color: var(--text);
+      padding: 8px 10px;
+      font-weight: 400;
+      .muted { font-size: 12px; }
+      &:hover { background: var(--bg); }
+      &.active { background: #eef3f6; border-color: var(--border); }
+    }
+  }
+
+  .editor {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    .bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+      > .mono { margin-right: auto; font-weight: 500; }
+    }
+    .hint { font-size: 13px; }
+    .notice { color: var(--ok); font-size: 13px; }
+    textarea {
+      min-height: calc(100vh - 290px);
+      resize: vertical;
+      font-family: var(--mono);
+      font-size: 13px;
+      line-height: 1.55;
+      tab-size: 2;
+    }
+  }
+
+  @media (max-width: 900px) {
+    .columns { grid-template-columns: 1fr; }
+  }
+}

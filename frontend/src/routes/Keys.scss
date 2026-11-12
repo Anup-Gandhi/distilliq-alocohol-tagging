@@ -1,0 +1,12 @@
+.keys {
+  max-width: 1100px;
+  .columns {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 360px;
+    gap: 16px;
+    align-items: start;
+    margin-top: 12px;
+  }
+  .prices { margin-top: 10px; .field { flex: 1; } }
+  @media (max-width: 900px) { .columns { grid-template-columns: 1fr; } }
+}

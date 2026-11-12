@@ -1,0 +1,43 @@
+.commands {
+  .columns {
+    display: grid;
+    grid-template-columns: minmax(300px, 420px) minmax(0, 1fr);
+    gap: 16px;
+    align-items: start;
+  }
+  .right {
+    min-width: 0;
+    // the tabs sit inside a white card here, so the active one needs its own tint
+    .tabs { border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 14px; }
+    .tabs .tab.active { background: #eef3f6; border-color: transparent; }
+    .tab .badge { margin-left: 6px; }
+  }
+
+  .tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+    .tab {
+      background: transparent;
+      color: var(--muted);
+      border-color: transparent;
+      padding: 6px 12px;
+      &:hover { background: #e9ebef; }
+      &.active { background: var(--surface); color: var(--text); border-color: var(--border); font-weight: 500; }
+    }
+  }
+
+  .checks { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+  .row select { flex: 1; }
+
+  table.jobs {
+    tr { cursor: pointer; }
+    tr.selected td { background: #eef3f6; }
+    td:first-child { max-width: 320px; }
+  }
+
+  @media (max-width: 900px) {
+    .columns { grid-template-columns: 1fr; }
+  }
+}

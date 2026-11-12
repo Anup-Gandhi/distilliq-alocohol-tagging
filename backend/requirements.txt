@@ -1,0 +1,13 @@
+anthropic==2.1.0
+google-genai==2.34.0
+openai==3.40.0
+boto3==1.44.1
+sqlalchemy==2.0.51
+alembic==1.20.1
+psycopg[binary]==3.3.4
+python-dotenv==1.0.1
+fastapi==0.162.5
+uvicorn[standard]==0.54.0
+python-multipart==0.0.33
+PyJWT==2.15.1
+bcrypt==5.0.0

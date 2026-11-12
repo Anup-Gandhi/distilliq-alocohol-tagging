@@ -1,0 +1,39 @@
+services:
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: tagger
+      POSTGRES_PASSWORD: tagger
+      POSTGRES_DB: tagging
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tagger -d tagging"]
+      interval: 5s
+      retries: 10
+
+  api:
+    build: ./backend
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://tagger:tagger@db:5432/tagging
+      FRONTEND_URL: http://localhost:5175
+    volumes:
+      - ./backend/secrets:/app/secrets
+      - ./backend/prompts:/app/prompts
+      - ./backend/data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
+  web:
+    build: ./frontend
+    depends_on:
+      - api
+    ports:
+      - "5175:80"
+
+volumes:
+  pgdata:

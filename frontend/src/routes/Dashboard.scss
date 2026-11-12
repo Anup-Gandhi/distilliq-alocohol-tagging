@@ -1,0 +1,24 @@
+.dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 1100px;
+
+  .source .row { justify-content: space-between; align-items: flex-start; }
+
+  .facts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    margin: 14px 0;
+    dt { font-size: 12px; color: var(--muted); }
+    dd { margin: 0; font-weight: 500; }
+  }
+
+  .tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    .big { font-size: 26px; font-weight: 600; margin-top: 4px; }
+  }
+}
