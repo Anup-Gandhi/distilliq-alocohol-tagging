@@ -76,6 +76,7 @@ Return only this JSON:
   "correct_answer": "",
   "correct_brand_label_name": "",
   "correct_is_alcoholic": true | false,
+  "correct_misc_category": "" | null,
   "explanation": ""
 }
 
@@ -83,6 +84,7 @@ Return only this JSON:
 - **correct_answer**: the option you believe is correct. Same as the first model's when you agree. Empty when IGNORED.
 - **correct_brand_label_name**: the correct Brand + Label name when correct_answer is "None of the above" and the item is identifiable; otherwise "". Same as the first model's when you agree.
 - **correct_is_alcoholic**: your judgment. Omit when IGNORED.
+- **correct_misc_category**: only when correct_answer is "Misc - Not a Liquor": what kind of item it is. Use "Non-Alcoholic Beverage" (soft drinks, mixers, juice, water, energy drinks, non-alcoholic beer or wine), "Food" (any food except chips) or "Chips" (potato chips, tortilla chips and similar) when one fits. Otherwise a short general category in Title Case, 1 to 3 words (e.g. "Tobacco", "Glassware", "Bag", "Bottle Deposit", "Ice"). null only if you cannot tell what kind of item it is at all. null for every other answer, and when IGNORED.
 - **explanation**:
   - AGREE: one short sentence confirming why the result is right (e.g. "Only the size differs from the chosen name").
   - DISAGREE: name the specific error and the rule or fact behind it, in one or two sentences (e.g. "Chosen name adds Buffalo Trace, which the item does not have; no offered name matches, so the answer is None of the above with 1792 Full Proof Bourbon").

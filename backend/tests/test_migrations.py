@@ -64,3 +64,39 @@ def test_upgrade_matches_metadata_and_is_repeatable(scratch_url):
         assert not (VIEWS & set(left.get_view_names()))
     finally:
         engine.dispose()
+
+
+def test_final_results_misc_category_and_downgrade(scratch_url):
+    from alembic import command
+
+    migrate(scratch_url)
+    engine = create_engine(scratch_url)
+    misc = "Misc - Not a Liquor"
+    try:
+        with engine.begin() as conn:
+            for row_id, tag, category in [("a", misc, "Food"), ("b", misc, None), ("c", "Tito's Vodka", None)]:
+                conn.execute(text("INSERT INTO llm_tags (source_row_id, base_value, options, tag, model, misc_category) "
+                                  "VALUES (:i, 'x', '{}', :t, 'm', :c)"), {"i": row_id, "t": tag, "c": category})
+            # a: pass 2 agrees and names it Chips; b: pass 2 agrees, pass 1 gave no category
+            for row_id, category in [("a", "Chips"), ("b", None)]:
+                conn.execute(text("INSERT INTO llm_retags (source_row_id, base_value, tag, model, misc_category) "
+                                  "VALUES (:i, 'x', :t, 'm', :c)"), {"i": row_id, "t": misc, "c": category})
+            # c: pass 3 calls the "liquor" Misc after all
+            conn.execute(text("INSERT INTO llm_final_tags (source_row_id, base_value, options, tag, model, "
+                              "misc_category) VALUES ('c', 'x', '{}', :t, 'm', 'Non-Alcoholic Beverage')"), {"t": misc})
+            got = dict(conn.execute(text("SELECT source_row_id, misc_category FROM final_results")).all())
+            models = dict(conn.execute(text("SELECT source_row_id, final_tag_model FROM final_results")).all())
+        assert got == {"a": "Chips", "b": None, "c": "Non-Alcoholic Beverage"}
+        assert models == {"a": "m", "b": "m", "c": "m"}
+
+        command.downgrade(_config(scratch_url), "api_name")
+        with engine.connect() as conn:
+            assert "final_tag_model" not in {c["name"] for c in inspect(conn).get_columns("final_results")}
+        command.upgrade(_config(scratch_url), "head")
+
+        command.downgrade(_config(scratch_url), "no_brand_skips_pass_3")
+        with engine.connect() as conn:
+            assert "misc_category" not in {c["name"] for c in inspect(conn).get_columns("final_results")}
+        command.upgrade(_config(scratch_url), "head")
+    finally:
+        engine.dispose()

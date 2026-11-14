@@ -5,6 +5,8 @@ import json
 import os
 import signal
 import sys
+import threading
+import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import asdict
 from itertools import islice
@@ -39,6 +41,23 @@ def _stop_on_ctrl_c():
         print("\nStopped. Saved rows are kept, and the next run picks up the rest.", file=sys.stderr, flush=True)
         os._exit(130)  # Postgres rolls back a save that was in progress
     signal.signal(signal.SIGINT, stop)
+
+
+PASS3_REQUEST_INTERVAL = 1.0  # seconds between pass 3 requests: at most 1 per second, across all workers
+
+
+def _throttled(fn, interval: float):
+    """fn, but calls start at least `interval` seconds apart, even from several threads."""
+    lock, next_start = threading.Lock(), [0.0]
+
+    def call(*args, **kwargs):
+        with lock:
+            now = time.monotonic()
+            start = max(now, next_start[0])
+            next_start[0] = start + interval
+        time.sleep(start - now)
+        return fn(*args, **kwargs)
+    return call
 
 
 def _tag_rows(rows, tag, workers):
@@ -223,7 +242,7 @@ def cmd_run(args, settings):
         return _preview(args, _limited(pending(), args.limit), prompt, lambda row: tagger.model)
     tagged, skipped, failed, stopped = _run_loop(
         _limited(pending(), args.limit), tagger.tag,
-        lambda row, result: store.save(row, result, tagger.model), args, budget, lambda row: tagger.model)
+        lambda row, result: store.save(row, result, tagger.model, llm=tagger.llm), args, budget, lambda row: tagger.model)
     _summary(budget, stopped, "add --full" if not args.csv else "same command",
              fetched=stats.fetched, invalid=stats.invalid, already_tagged=already, tagged=tagged,
              skipped=skipped, failed=failed)
@@ -311,7 +330,8 @@ def cmd_retag(args, settings):
     tagged, skipped, failed, stopped = _run_loop(
         _limited((row for row, _ in requests.values()), args.limit),
         lambda row: tagger_for(row).tag(row, note=requests[row.source_row_id][1]),
-        lambda row, result: store.save_retag(firsts[row.source_row_id], result, tagger_for(row).model, table=target),
+        lambda row, result: store.save_retag(firsts[row.source_row_id], result, tagger_for(row).model, table=target,
+                                               llm=tagger_for(row).llm),
         args, budget, lambda row: tagger_for(row).model)
     _summary(budget, stopped, "same command", misc_or_blank=len(needed), already_checked=already,
              tagged=tagged, skipped=skipped, failed=failed)
@@ -336,9 +356,11 @@ def cmd_final(args, settings):
 
     if args.preview:
         return _preview(args, _limited(rows, args.limit), prompt, lambda row: tagger.model)
+    # shortcut: a pause_turn continuation inside one tag() call isn't spaced out; rare, throttle _request if it matters
     tagged, skipped, failed, stopped = _run_loop(
-        _limited(rows, args.limit), tagger.tag,
-        lambda row, result: store.save_final(firsts[row.source_row_id], row, result, tagger.model),
+        _limited(rows, args.limit), _throttled(tagger.tag, PASS3_REQUEST_INTERVAL),
+        lambda row, result: store.save_final(firsts[row.source_row_id], row, result, tagger.model,
+                                             llm=tagger.llm),
         args, budget, lambda row: tagger.model)
     _summary(budget, stopped, "same command", to_name=len(needed), already_named=len(needed) - len(firsts),
              tagged=tagged, skipped=skipped, failed=failed)

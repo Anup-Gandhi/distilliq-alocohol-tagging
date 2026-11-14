@@ -17,7 +17,7 @@ from .config import LLMConfig
 JSON_ANSWER = """
 
 Give record_tag's fields as a single JSON object and nothing else, in this form:
-{"answer": "...", "name_reasons": [{"name": "...", "reason": "..."}], "is_alcoholic": true, "brand_label_name": "...", "skip_reason": "", "confidence": "high", "reason": "..."}"""
+{"answer": "...", "name_reasons": [{"name": "...", "reason": "..."}], "is_alcoholic": true, "brand_label_name": "...", "skip_reason": "", "misc_category": null, "confidence": "high", "reason": "..."}"""
 
 DECLINED = {"SAFETY", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "RECITATION"}
 THINKING_BUDGETS = {"low": 1024, "medium": 4096, "high": 16384}  # Gemini 2.x

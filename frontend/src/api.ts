@@ -65,8 +65,9 @@ export function upload<T = unknown>(path: string, file: File): Promise<T> {
 }
 
 // Downloads need the Authorization header, which a plain link can't send.
-export async function download(path: string, filename: string) {
-  const blob = await (await request(path)).blob()
+export async function download(path: string, filename: string, transform?: (body: string) => string) {
+  const response = await request(path)
+  const blob = transform ? new Blob([transform(await response.text())], { type: 'text/csv' }) : await response.blob()
   const url = URL.createObjectURL(blob)
   const a = Object.assign(document.createElement('a'), { href: url, download: filename })
   a.click()

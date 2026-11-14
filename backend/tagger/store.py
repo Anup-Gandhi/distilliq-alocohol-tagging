@@ -72,6 +72,9 @@ llm_tags = Table(
     Column("sources", JSONB, nullable=False, server_default="[]"),
     Column("error", Text),
     Column("skip_reason", Text),  # set when the tagger found the record too unclear; tag is then NULL
+    Column("misc_category", Text),  # what a Misc item is (Food, Chips, ...); NULL for other tags
+    Column("api_key", Text),  # the key used, stored only when error is set; never sent to the web app
+    Column("api_name", Text),  # the LLM config's api_name (secrets/<name>.json)
     Column("model", String(64), nullable=False),
     Column("source_insert_dttm", DateTime(timezone=True)),
     Column("tagged_at", DateTime(timezone=True), server_default=func.now()),
@@ -91,6 +94,9 @@ llm_retags = Table(
     Column("sources", JSONB, nullable=False, server_default="[]"),
     Column("error", Text),
     Column("skip_reason", Text),  # set when the tagger found the record too unclear; tag is then NULL
+    Column("misc_category", Text),  # what a Misc item is (Food, Chips, ...); NULL for other tags
+    Column("api_key", Text),  # the key used, stored only when error is set; never sent to the web app
+    Column("api_name", Text),  # the LLM config's api_name (secrets/<name>.json)
     Column("model", String(64), nullable=False),
     Column("tagged_at", DateTime(timezone=True), server_default=func.now()),
 )
@@ -114,6 +120,9 @@ llm_final_tags = Table(
     Column("sources", JSONB, nullable=False, server_default="[]"),
     Column("error", Text),
     Column("skip_reason", Text),  # set when the tagger found the record too unclear; tag is then NULL
+    Column("misc_category", Text),  # what a Misc item is (Food, Chips, ...); NULL for other tags
+    Column("api_key", Text),  # the key used, stored only when error is set; never sent to the web app
+    Column("api_name", Text),  # the LLM config's api_name (secrets/<name>.json)
     Column("model", String(64), nullable=False),
     Column("tagged_at", DateTime(timezone=True), server_default=func.now()),
     Column("decision", String(10)),  # MODEL_1 | MODEL_2 | HUMAN; a HUMAN row is saved as a skip
@@ -140,11 +149,12 @@ def _upsert(conn, table: Table, values: dict | list[dict]) -> None:
     conn.execute(statement.on_conflict_do_update(index_elements=["source_row_id"], set_=updates))
 
 
-def _decision_values(result: TagResult) -> dict:
+def _decision_values(result: TagResult, llm) -> dict:
     return {
         "tag": result.tag, "is_alcoholic": result.is_alcoholic, "suggested_name": result.suggested_name,
         "confidence": result.confidence, "reason": result.reason, "sources": result.sources or [],
-        "error": result.error, "skip_reason": result.skip_reason,
+        "error": result.error, "skip_reason": result.skip_reason, "misc_category": result.misc_category,
+        "api_key": llm.api_key if llm and result.error else None, "api_name": (llm.api_name or llm.name) if llm else None,
     }
 
 
@@ -278,16 +288,20 @@ class Store:
             raise ValueError(f"{name!r}: use lowercase letters, digits and _, and not one of {sorted(metadata.tables)}")
         table = like.to_metadata(MetaData(), name=name)
         table.create(self.engine, checkfirst=True)
+        with self.engine.begin() as conn:  # a table made before misc_category, api_key or api_name existed
+            conn.exec_driver_sql(f"ALTER TABLE {name} ADD COLUMN IF NOT EXISTS misc_category text, "
+                                 "ADD COLUMN IF NOT EXISTS api_key text, ADD COLUMN IF NOT EXISTS api_name text")
         return table
 
-    def save(self, row: SourceRow, result: TagResult, model: str, table: Table = llm_tags) -> None:
+    def save(self, row: SourceRow, result: TagResult, model: str, table: Table = llm_tags,
+             llm=None) -> None:
         options = list(row.options)
         # A suggested name becomes one more option, so the tag always reads like a candidate.
         if result.tag and result.tag == result.suggested_name and result.tag not in options:
             options.append(result.tag)
         values = {"source_row_id": row.source_row_id, "base_value": row.base_value, "options": options,
                   "selected_option": result.selected_option, "judgements": result.judgements or [],
-                  "model": model, "source_insert_dttm": row.insert_dttm, **_decision_values(result)}
+                  "model": model, "source_insert_dttm": row.insert_dttm, **_decision_values(result, llm)}
         with self.engine.begin() as conn:
             _upsert(conn, table, values)
 
@@ -306,10 +320,11 @@ class Store:
     def retagged_ids(self, include_errors: bool = True, table: Table = llm_retags) -> set[str]:
         return self._ids(table, include_errors)
 
-    def save_retag(self, first: dict, result: TagResult, model: str, table: Table = llm_retags) -> None:
+    def save_retag(self, first: dict, result: TagResult, model: str, table: Table = llm_retags,
+                   llm=None) -> None:
         values = {"source_row_id": first["source_row_id"], "base_value": first["base_value"],
                   "first_tag": first["tag"], "first_model": first["model"], "model": model,
-                  **_decision_values(result)}
+                  **_decision_values(result, llm)}
         with self.engine.begin() as conn:
             _upsert(conn, table, values)
 
@@ -324,14 +339,14 @@ class Store:
     def final_tagged_ids(self, include_errors: bool = True) -> set[str]:
         return self._ids(llm_final_tags, include_errors)
 
-    def save_final(self, first: dict, row: SourceRow, result: TagResult, model: str) -> None:
+    def save_final(self, first: dict, row: SourceRow, result: TagResult, model: str, llm=None) -> None:
         """`first` is a pass3_rows row. tag_1 and tag_2 record what passes 1 and 2 said, for comparison only."""
         values = {"source_row_id": row.source_row_id, "base_value": row.base_value, "options": row.options,
                   "tag_1": first["tag"], "tag_2": first["tag_2"],
                   "tag_1_model": first["model"], "tag_2_model": first["model_2"],
                   "selected_option": result.selected_option, "judgements": result.judgements or [],
                   "decision": result.decision, "dispute_type": result.dispute_type,
-                  "disputed_point": result.disputed_point, "model": model, **_decision_values(result)}
+                  "disputed_point": result.disputed_point, "model": model, **_decision_values(result, llm)}
         with self.engine.begin() as conn:
             _upsert(conn, llm_final_tags, values)
 

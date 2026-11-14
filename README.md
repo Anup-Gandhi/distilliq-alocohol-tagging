@@ -14,8 +14,11 @@ React web app (`frontend`). `BUILD-GUIDE.md` explains the tagging logic in depth
    (`llm_final_tags`).
 
 The view `final_results` holds the answer: `final_tag` is `Misc - Not a Liquor` when passes 1 and 2 agree, else pass
-3's name. `status` says where each row stands, and `needs_pass_2` / `needs_pass_3` show the routing. The Misc list
-is `SELECT * FROM final_results WHERE final_tag = 'Misc - Not a Liquor'`. Every pass takes a prompt file
+3's name. A row pass 1 skipped as "item text has no brand" skips pass 3 too (status `skipped: item text has no
+brand`), unless pass 2 named the product. `status` says where each row stands, and `needs_pass_2` / `needs_pass_3` show the routing. The Misc list
+is `SELECT * FROM final_results WHERE final_tag = 'Misc - Not a Liquor'`; its `misc_category` says what each Misc item
+is (`Non-Alcoholic Beverage`, `Food`, `Chips`, or a short category the model names), NULL only when the model
+couldn't tell. Every pass takes a prompt file
 (`--prompt`): `system_prompt.md`, `retag_system_prompt.md` and `pass3_system_prompt.md` by default.
 
 ## What changed from the command-line version
@@ -37,7 +40,7 @@ cp .env.example .env      # fill in the AWS and Athena values; set JWT_SECRET to
 docker compose up --build
 ```
 
-Open http://localhost:5175 and sign in with the `EMAIL` / `PASSWORD` from `.env` (the account is created on first
+Open http://localhost:5176 and sign in with the `EMAIL` / `PASSWORD` from `.env` (the account is created on first
 start). Postgres data lives in the `pgdata` volume; key files in `backend/secrets/`; prompts in `backend/prompts/`; uploaded CSVs and job logs in
 `backend/data/`.
 
@@ -48,7 +51,7 @@ Backend (Python 3.12), from `backend/`:
 ```bash
 python -m venv .venv && .venv/Scripts/activate        # macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt pytest
-uvicorn api.main:app --reload --port 8000
+uvicorn api.main:app --reload --port 8001
 python -m pytest tests
 ```
 
@@ -56,7 +59,7 @@ Frontend (Node 20+), from `frontend/`:
 
 ```bash
 npm install
-npm run dev          # http://localhost:5175, proxies /api to :8000
+npm run dev          # http://localhost:5176, proxies /api to :8001
 npm run build        # type-checks, then bundles to dist/
 ```
 
@@ -92,7 +95,7 @@ used and are left out of migrations.
 | `DATABASE_URL` | `postgresql+psycopg://user:password@host:5432/dbname`; created if missing. Docker sets its own. |
 | `EMAIL`, `PASSWORD`, `FIRST_NAME`, `LAST_NAME` | the first account, created at startup if that email doesn't exist |
 | `JWT_SECRET` | signs the sign-in tokens; 16+ random characters |
-| `FRONTEND_URL` | allowed CORS origin for development (default `http://localhost:5175`) |
+| `FRONTEND_URL` | allowed CORS origin for development (default `http://localhost:5176`) |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` | Athena access (a profile or instance role works too) |
 | `ATHENA_WORKGROUP`, `ATHENA_OUTPUT_LOCATION` | required for `refresh` |
 | `ATHENA_CATALOG`, `ATHENA_DATABASE`, `ATHENA_TABLE` | defaults `AwsDataCatalog`, `dev_proximo_cantag`, `topk_options` |

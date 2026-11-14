@@ -7,13 +7,17 @@ import './Dashboard.scss'
 type Stats = {
   source: { rows: number; oldest_insert_dttm: string | null; newest_insert_dttm: string | null; loaded_at: string | null }
   counts: Record<string, number>
+  passes: { total: number; tagged: number; skipped: number; errors: number }[]
+  final: { total: number; named: number; misc: number; waiting: number; no_tag: number }
+  pending: { pass_1: number; pass_2: number; pass_3: number }
+  apis: { api_name: string | null; total: number; pass_1: number; pass_2: number; pass_3: number; errors: number }[]
   decisions: { decision: string; n: number }[]
   athena: { database: string; table: string; region: string; workgroup: string | null }
 }
 
-const countLabels: Record<string, string> = {
-  llm_tags: 'Pass 1 tags', llm_retags: 'Pass 2 reviews', llm_final_tags: 'Pass 3 decisions', csv_records: 'CSV rows uploaded',
-}
+const passNames = ['Pass 1 (tag)', 'Pass 2 (review)', 'Pass 3 (final)']
+const n = (v: number | undefined) => (v ?? 0).toLocaleString()
+const pct = (part: number, whole: number) => (whole ? `${((100 * part) / whole).toFixed(1)}%` : '–')
 
 export default function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null)
@@ -39,6 +43,17 @@ export default function Dashboard() {
   }
 
   const s = stats?.source
+  const f = stats?.final
+  const errors = stats?.passes.reduce((sum, p) => sum + p.errors, 0) ?? 0
+  const tiles: [string, number | undefined, string?][] = [
+    ['Rows in pass 1', f?.total, s ? `of ${n(s.rows)} source rows (${pct(f?.total ?? 0, s.rows)})` : undefined],
+    ['Final tag (liquor)', f?.named, f && pct(f.named, f.total)],
+    ['Final: Misc', f?.misc, f && pct(f.misc, f.total)],
+    ['Waiting for a pass', f?.waiting, f && pct(f.waiting, f.total)],
+    ['No tag (skipped / failed)', f?.no_tag, f && pct(f.no_tag, f.total)],
+    ['Errors (all passes)', stats ? errors : undefined],
+    ['CSV rows uploaded', stats?.counts.csv_records],
+  ]
   return (
     <div className="dashboard">
       <h1>Dashboard</h1>
@@ -67,12 +82,55 @@ export default function Dashboard() {
       </section>
 
       <section className="tiles">
-        {Object.entries(countLabels).map(([key, label]) => (
-          <div className="card tile" key={key}>
+        {tiles.map(([label, value, sub]) => (
+          <div className="card tile" key={label}>
             <div className="muted">{label}</div>
-            <div className="big">{stats ? (stats.counts[key] ?? 0).toLocaleString() : '…'}</div>
+            <div className="big">{stats ? n(value) : '…'}</div>
+            {sub && <div className="muted small">{sub}</div>}
           </div>
         ))}
+        <div className="card tile">
+          <div className="muted">Pending by pass</div>
+          {(['pass_1', 'pass_2', 'pass_3'] as const).map((k, i) => (
+            <div className="pending" key={k}>
+              <span className="muted">Pass {i + 1}</span>
+              <strong>{stats ? n(stats.pending[k]) : '…'}</strong>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {stats && stats.apis.length > 0 && (
+        <section>
+          <h2>Taggings per API key</h2>
+          <div className="tiles">
+            {stats.apis.map((a) => (
+              <div className="card tile" key={a.api_name ?? ''}>
+                <div className="muted mono">{a.api_name ?? '(not recorded)'}</div>
+                <div className="big">{n(a.total)}</div>
+                <div className="muted small">
+                  P1 {n(a.pass_1)} · P2 {n(a.pass_2)} · P3 {n(a.pass_3)}
+                  {a.errors > 0 && <> · <span className="err">{n(a.errors)} errors ({pct(a.errors, a.total)})</span></>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <section className="card">
+        <h2>Per pass</h2>
+        <table className="data">
+          <thead><tr><th>Pass</th><th>Rows</th><th>Tagged</th><th>Skipped</th><th>Errors</th><th>Error rate</th></tr></thead>
+          <tbody>
+            {stats?.passes.map((p, i) => (
+              <tr key={i}>
+                <td>{passNames[i]}</td><td>{n(p.total)}</td><td>{n(p.tagged)}</td><td>{n(p.skipped)}</td>
+                <td>{n(p.errors)}</td><td>{pct(p.errors, p.total)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </section>
 
       <section className="card">

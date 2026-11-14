@@ -64,6 +64,7 @@ class LLMConfig:
     search_price: float  # USD per web search
     effort: str = DEFAULT_EFFORT  # low | medium | high
     base_url: str | None = None   # set for a local OpenAI-style proxy, e.g. the Gemini-web one
+    api_name: str | None = None   # "api_name" in the file; the file name when it's missing
 
 
 def provider_of_key(api_key: str) -> str | None:
@@ -146,7 +147,7 @@ def load_llm_config(name: str) -> LLMConfig:
         sys.exit(f"{path}: effort is '{effort}' (use {', '.join(EFFORTS)})")
 
     return LLMConfig(path.stem, provider, model, api_key, input_price, output_price, search_price, effort,
-                     data.get("base_url") or None)
+                     data.get("base_url") or None, data.get("api_name") or path.stem)
 
 
 def find_llm_configs(provider: str) -> list[Path]:

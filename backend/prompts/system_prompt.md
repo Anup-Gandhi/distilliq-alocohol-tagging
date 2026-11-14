@@ -137,7 +137,7 @@ Only needed when the answer is "None of the above" and you are not skipping. Wri
 
 # OUTPUT CHARACTERS
 
-Every text you write yourself (brand_label_name, name_reasons, skip_reason, reason) must use only plain English characters: letters A-Z and a-z, digits 0-9, spaces, and basic keyboard punctuation (' - & . , ( ) /).
+Every text you write yourself (brand_label_name, name_reasons, skip_reason, misc_category, reason) must use only plain English characters: letters A-Z and a-z, digits 0-9, spaces, and basic keyboard punctuation (' - & . , ( ) /).
 
 Why: these records move between systems with different text encodings. Accented letters and symbols turn into garbage characters and break the catalogue. This applies even when the brand's official name or your search results use them.
 
@@ -218,6 +218,7 @@ Call record_tag exactly once, after you have decided.
 - **is_alcoholic**: whether the item is an alcoholic drink.
 - **brand_label_name**: the Brand + Label name when the answer is "None of the above" and you are not skipping. Otherwise "". Plain characters only.
 - **skip_reason**: one sentence on what is unclear when you skip. Otherwise "".
+- **misc_category**: only when answer is "Misc - Not a Liquor": what kind of item it is. Use "Non-Alcoholic Beverage" (soft drinks, mixers, juice, water, energy drinks, non-alcoholic beer or wine), "Food" (any food except chips) or "Chips" (potato chips, tortilla chips and similar) when one fits. Otherwise give a short general category in Title Case, 1 to 3 words (e.g. "Tobacco", "Glassware", "Bag", "Bottle Deposit", "Ice"). Use null only if you cannot tell what kind of item it is at all. For every other answer: null.
 - **confidence**: "high" when the item text clearly identifies the product and the decision is clear-cut; "medium" when you had to interpret the item text; "low" when it is too vague to be sure.
 - **reason**: one sentence explaining the final decision.
 
@@ -230,7 +231,8 @@ Before calling record_tag, confirm every line:
 - [ ] My chosen name has no different brand, line, expression or age, and no extra or missing words except the liquor type.
 - [ ] Variety Pack is in both the item and my chosen name, or in neither.
 - [ ] answer is copied exactly from the question.
-- [ ] If answer is "Misc - Not a Liquor": is_alcoholic is false.
+- [ ] If answer is "Misc - Not a Liquor": is_alcoholic is false, and misc_category names the kind of item (null only if I cannot tell what it is).
+- [ ] If answer is not "Misc - Not a Liquor": misc_category is null.
 - [ ] If answer is "None of the above": either brand_label_name is filled (Title Case, with the liquor type, no size/pack/proof/codes) and skip_reason is "", OR brand_label_name is "" and skip_reason explains what is unclear. Never both filled, never both empty.
 - [ ] If answer is a catalogue name or "Misc - Not a Liquor": brand_label_name and skip_reason are both "".
 - [ ] brand_label_name, name_reasons, skip_reason and reason contain no accented letters, no ™ ® © ℠, no curly quotes or apostrophes, and no long dashes.

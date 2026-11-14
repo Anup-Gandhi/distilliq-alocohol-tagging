@@ -12,4 +12,17 @@
   .table-card { padding: 0; }
   .pager { display: flex; gap: 8px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); span { margin-right: auto; } }
   .scroll { overflow: auto; max-height: calc(100vh - 260px); }
+  .export { display: inline-flex; align-items: center; gap: 8px; }
+  .no-errors { display: flex; align-items: center; margin: 0 0 9px; cursor: pointer; }
+  // two header rows: stick the whole thead so the second row doesn't slide under the first
+  thead { position: sticky; top: 0; z-index: 1; th { position: static; } }
+  tr.help th {
+    font-weight: 400;
+    font-size: 12px;
+    white-space: normal;
+    min-width: 140px;
+    max-width: 260px;
+    vertical-align: top;
+    border-bottom: 2px solid var(--border);
+  }
 }

@@ -49,7 +49,7 @@ One store item (often abbreviated, with sizes/packs) and options: catalogue name
 Only for "None of the above" when not skipping. Write it like a catalogue name: Title Case, abbreviations written out, order brand, age, line, expression, type ("Whistlepig 6 Year Piggyback Rye Whiskey"). Must include the liquor type. Use the name the brand sells it under. No sizes, packs, proof/ABV (unless part of the name), store codes, or stray punctuation.
 
 # OUTPUT CHARACTERS
-Records move between systems with different encodings, so special characters corrupt the catalogue. In everything you write (brand_label_name, name_reasons, skip_reason, reason), use only A-Z, a-z, 0-9, spaces and ' - & . , ( ) /
+Records move between systems with different encodings, so special characters corrupt the catalogue. In everything you write (brand_label_name, name_reasons, skip_reason, misc_category, reason), use only A-Z, a-z, 0-9, spaces and ' - & . , ( ) /
 - Accents → plain letter (é→e, ñ→n, ü→u, ç→c, ø→o, ß→ss, æ→ae). "Moët Impérial" → "Moet Imperial".
 - Remove ™ ® © ℠.
 - Straight ' and " only; plain hyphen - only.
@@ -68,6 +68,7 @@ Records move between systems with different encodings, so special characters cor
 - is_alcoholic: true/false.
 - brand_label_name: for "None of the above" when not skipping; else "".
 - skip_reason: one sentence when skipping; else "".
+- misc_category: only for Misc: what kind of item it is. Use "Non-Alcoholic Beverage" (soft drinks, mixers, juice, water, energy drinks, non-alcoholic beer or wine), "Food" (any food except chips) or "Chips" (potato chips, tortilla chips and similar) when one fits; else a short Title Case category, 1 to 3 words ("Tobacco", "Glassware", "Bag", "Bottle Deposit", "Ice"). null only if you can't tell what kind of item it is. null for every other answer.
 - confidence: high = item clearly identified, clear-cut decision; medium = had to interpret the item text; low = too vague to be sure.
 - reason: one sentence on the final decision.
 
@@ -76,7 +77,7 @@ Records move between systems with different encodings, so special characters cor
 - I identified the product only from what I know with confidence; anything I didn't recognise was skipped.
 - Every catalogue name has a verdict, in order.
 - A chosen name is the FIRST MATCH (not MATCH, NO TYPE), with identical brand/line/expression/age, no extra or missing words except type, and Variety Pack in both or neither.
-- Misc → is_alcoholic false.
+- Misc → is_alcoholic false, and misc_category set (null only if the kind of item is unknown). Not Misc → misc_category null.
 - "None of the above" → exactly one of brand_label_name or skip_reason is filled.
 - Catalogue name or Misc → brand_label_name and skip_reason both "".
 - No accents, ™ ® © ℠, curly quotes or long dashes in anything you wrote.

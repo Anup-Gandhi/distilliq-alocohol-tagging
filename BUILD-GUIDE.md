@@ -222,6 +222,7 @@ class TagResult:                         # one LLM decision, any pass
     sources: list[dict]                  # up to 5 web pages: {"title", "url"}
     error: str | None = None             # set when the call or the answer failed
     skip_reason: str | None = None       # set when the model declined to decide; tag is then None
+    misc_category: str | None = None     # what a Misc item is (Food, Chips, ...); None for every other tag
     decision: str | None = None          # pass 3 only: MODEL_1 | MODEL_2 | HUMAN
     dispute_type: str | None = None      # pass 3 only
     disputed_point: str | None = None    # pass 3 only
@@ -324,8 +325,8 @@ their names; a provider accepts a call to any of them.
 
 | Tool | Pass | Fields |
 |---|---|---|
-| `record_tag` | 1 | `answer` (copied exactly from the question), `name_reasons[{name, reason}]`, `is_alcoholic`, `brand_label_name`, `skip_reason`, `confidence` (high/medium/low), `reason` |
-| `record_review` | 2 | `verdict` (AGREE/DISAGREE/IGNORED), `correct_answer`, `correct_brand_label_name`, `correct_is_alcoholic` (bool or null), `explanation` |
+| `record_tag` | 1 | `answer` (copied exactly from the question), `name_reasons[{name, reason}]`, `is_alcoholic`, `brand_label_name`, `skip_reason`, `misc_category` (string or null, Misc only), `confidence` (high/medium/low), `reason` |
+| `record_review` | 2 | `verdict` (AGREE/DISAGREE/IGNORED), `correct_answer`, `correct_brand_label_name`, `correct_is_alcoholic` (bool or null), `correct_misc_category` (string or null, Misc only), `explanation` |
 | `record_decision` | 3 | `dispute_type` (SPELLING/EXPRESSION/PRODUCT/MATCH/ALCOHOLIC/SKIP/FORMAT), `disputed_point`, `decision` (MODEL_1/MODEL_2/HUMAN), `final_tag`, `final_brand_label_name`, `final_is_alcoholic` (bool or null), `explanation` |
 
 #### Parsing an answer that came back as text
@@ -350,7 +351,11 @@ This one function serves all three passes and all four providers.
    - answer is Misc, or answer is `None of the above` with `is_alcoholic is False` → `tag = MISC_OPTION`.
    - answer is `None of the above`, or answer equals the Brand + Label name → `tag = brand_label_name`; with no
      name, `error = "No name fit and no Brand + Label name was suggested"`.
-   - anything else → `error = "Chose '<answer>', which wasn't one of the names offered"`.
+   - any other non-empty answer is the model's own name → `tag = suggested_name = brand_label_name or answer`.
+   - an empty answer → `error = "Chose '', which wasn't one of the names offered"`.
+
+   Before step 3's match fails for good, an answer shaped `<item> - <name>` (the question's own format, which
+   Haiku sometimes echoes) is cut to the part after the last ` - ` and matched again.
 5. `sources` is cut to 5. `decision`, `dispute_type`, `disputed_point` are filled only for a judge answer.
 
 **`_from_review(review)`**: `answer = correct_answer`, `brand_label_name = correct_brand_label_name`, `reason =

@@ -116,14 +116,25 @@ def preview(command: str, args: dict) -> dict:
     return json.loads(out[-1])
 
 
+PASSES = {"pass1", "pass2", "pass3"}  # write separate tables, so they may overlap; refresh/import run alone
+
+
+def conflict(command: str, running: list[str]) -> str | None:
+    """The running command that blocks starting `command`, or None."""
+    for other in running:
+        if other == command or command not in PASSES or other not in PASSES:
+            return other
+    return None
+
+
 class JobRunner:
-    """One subprocess at a time. The log goes to a file as it arrives, so clients can read it from any offset."""
+    """Subprocesses keyed by job id; see conflict() for what may overlap. Logs go to files as they arrive."""
 
     def __init__(self, engine):
         self.engine = engine
         self.lock = threading.Lock()
-        self.process = None
-        self.current = None
+        self.running = {}  # job id -> (command, Popen)
+        self._stopping = set()
         LOGS.mkdir(parents=True, exist_ok=True)
         with engine.begin() as conn:  # a job still 'running' at startup died with the previous server
             conn.execute(update(jobs).where(jobs.c.status == "running").values(status="lost"))
@@ -131,24 +142,26 @@ class JobRunner:
     def start(self, command: str, args: dict, user_email: str) -> dict:
         argv = build_argv(command, args)
         with self.lock:
-            if self.process is not None and self.process.poll() is None:
-                raise HTTPException(409, f"A {self.current} job is still running. Stop it or wait for it to finish.")
+            self.running = {k: v for k, v in self.running.items() if v[1].poll() is None}
+            blocker = conflict(command, [c for c, _ in self.running.values()])
+            if blocker:
+                raise HTTPException(409, f"A {blocker} job is still running. Stop it or wait for it to finish.")
             job_id = str(uuid.uuid4())
             log = open(LOGS / f"{job_id}.log", "w", encoding="utf-8", newline="\n")
             env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
             try:
-                self.process = subprocess.Popen([sys.executable, "-u", "-m", "tagger", *argv], cwd=ROOT, env=env,
+                process = subprocess.Popen([sys.executable, "-u", "-m", "tagger", *argv], cwd=ROOT, env=env,
                                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             except OSError as e:
                 log.close()
                 raise HTTPException(500, f"Could not start the command: {e}")
-            self.current = command
+            self.running[job_id] = (command, process)
             with self.engine.begin() as conn:
                 conn.execute(insert(jobs).values(id=job_id, command=command, argv=argv, status="running",
                                                  started_by=user_email))
             log.write(f"$ python -m tagger {' '.join(argv)}\n")
             log.flush()
-            threading.Thread(target=self._pump, args=(job_id, self.process, log), daemon=True).start()
+            threading.Thread(target=self._pump, args=(job_id, process, log), daemon=True).start()
         return self.get(job_id)
 
     def _pump(self, job_id: str, process, log) -> None:
@@ -159,21 +172,20 @@ class JobRunner:
 
                 log.flush()
             code = process.wait()
-            status = "stopped" if self._stopping == job_id else "done" if code == 0 else "failed"
+            status = "stopped" if job_id in self._stopping else "done" if code == 0 else "failed"
             log.write(f"\n[exit code {code}: {status}]\n")
         with self.engine.begin() as conn:
             conn.execute(update(jobs).where(jobs.c.id == job_id)
                          .values(status=status, exit_code=code, finished_at=datetime.now(timezone.utc)))
 
-    _stopping = None
-
     def stop(self, job_id: str) -> dict:
         job = self.get(job_id)
         with self.lock:
-            if job["status"] != "running" or self.process is None or self.process.poll() is not None:
+            process = self.running.get(job_id, (None, None))[1]
+            if job["status"] != "running" or process is None or process.poll() is not None:
                 raise HTTPException(409, "That job is not running")
-            self._stopping = job_id
-            self.process.terminate()  # saved rows are kept; Postgres rolls back a save in progress
+            self._stopping.add(job_id)
+            process.terminate()  # saved rows are kept; Postgres rolls back a save in progress
         return job
 
     def get(self, job_id: str) -> dict:

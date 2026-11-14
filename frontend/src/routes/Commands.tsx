@@ -130,7 +130,10 @@ export default function Commands() {
   const blocked = missingField ? `Choose the ${missingField.label} to see which rows would run.`
     : missingDefaultKey ? `Choose an LLM key to see which rows would run. The default, ${missingDefaultKey.placeholder}, isn't on the API keys page.`
     : undefined
-  const running = jobs.some((j) => j.status === 'running')
+  // same rule as conflict() in backend/api/jobs.py: different passes may overlap, anything else runs alone
+  const runningJobs = jobs.filter((j) => j.status === 'running')
+  const isPass = (c: string) => ['pass1', 'pass2', 'pass3'].includes(c)
+  const blocker = jobs.find((j) => j.status === 'running' && (j.command === command || !isPass(command) || !isPass(j.command)))
 
   function field(f: Field) {
     const v = values[f.key]
@@ -235,8 +238,8 @@ export default function Commands() {
                   </div>
                 ))}
                 {error && <div className="error">{error}</div>}
-                <button onClick={start} disabled={busy || running}>
-                  {running ? 'A job is running…' : `Start ${spec.title}`}
+                <button onClick={start} disabled={busy || !!blocker}>
+                  {blocker ? `A ${blocker.command} job is running…` : `Start ${spec.title}`}
                 </button>
               </>
             )}
@@ -256,6 +259,13 @@ export default function Commands() {
             ? <Preview command={command} values={values} blocked={blocked} />
             : <p className="muted">{spec.title} has no rows to preview.</p>)}
 
+          {view === 'log' && runningJobs.length > 1 && (
+            <div className="tabs">
+              {runningJobs.map((j) => (
+                <button key={j.id} className={current?.id === j.id ? 'tab active' : 'tab'} onClick={() => setCurrent(j)}>{j.command}</button>
+              ))}
+            </div>
+          )}
           {view === 'log' && (current
             ? <LogView key={current.id} jobId={current.id} onFinish={loadJobs} />
             : <p className="muted">No job yet. Start one, or open a past job from History.</p>)}

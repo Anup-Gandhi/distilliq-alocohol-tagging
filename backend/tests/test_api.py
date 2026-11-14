@@ -2,7 +2,7 @@ import pytest
 from fastapi import HTTPException
 
 from api.auth import check_password, hash_password
-from api.jobs import build_argv
+from api.jobs import build_argv, conflict
 
 
 def test_build_argv_run():
@@ -61,3 +61,12 @@ def test_prompt_path_rejects(name):
 def test_prompt_path_accepts():
     from api.main import prompt_path
     assert prompt_path("misc_check_v2.md").name == "misc_check_v2.md"
+
+
+def test_conflict_lets_different_passes_overlap():
+    assert conflict("pass3", ["pass1"]) is None
+    assert conflict("pass1", ["pass2", "pass3"]) is None
+    assert conflict("pass1", ["pass1"]) == "pass1"
+    assert conflict("refresh", ["pass1"]) == "pass1"
+    assert conflict("pass1", ["import"]) == "import"
+    assert conflict("refresh", []) is None

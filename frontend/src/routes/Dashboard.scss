@@ -20,5 +20,8 @@
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 12px;
     .big { font-size: 26px; font-weight: 600; margin-top: 4px; }
+    .small { font-size: 12px; margin-top: 2px; }
+    .err { color: var(--danger); }
+    .pending { display: flex; justify-content: space-between; margin-top: 4px; strong { font-size: 16px; } }
   }
 }

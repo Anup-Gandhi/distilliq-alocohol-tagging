@@ -34,11 +34,12 @@ RECORD_TAG_TOOL = {
             "is_alcoholic": {"type": "boolean"},
             "brand_label_name": {"type": "string"},
             "skip_reason": {"type": "string"},
+            "misc_category": {"type": ["string", "null"]},  # only for Misc; null when it can't tell what the item is
             "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
             "reason": {"type": "string"},
         },
-        "required": ["answer", "name_reasons", "is_alcoholic", "brand_label_name", "skip_reason", "confidence",
-                     "reason"],
+        "required": ["answer", "name_reasons", "is_alcoholic", "brand_label_name", "skip_reason", "misc_category",
+                     "confidence", "reason"],
         "additionalProperties": False,
     },
 }
@@ -54,9 +55,11 @@ RECORD_REVIEW_TOOL = {
             "correct_answer": {"type": "string"},
             "correct_brand_label_name": {"type": "string"},
             "correct_is_alcoholic": {"type": ["boolean", "null"]},  # null when IGNORED
+            "correct_misc_category": {"type": ["string", "null"]},  # only for Misc
             "explanation": {"type": "string"},
         },
-        "required": ["verdict", "correct_answer", "correct_brand_label_name", "correct_is_alcoholic", "explanation"],
+        "required": ["verdict", "correct_answer", "correct_brand_label_name", "correct_is_alcoholic",
+                     "correct_misc_category", "explanation"],
         "additionalProperties": False,
     },
 }
@@ -103,6 +106,7 @@ class TagResult:
     sources: list[dict] = field(default_factory=list)     # up to 5 web pages: {"title", "url"}
     error: str | None = None
     skip_reason: str | None = None      # set when the record was too unclear to tag; tag is then None
+    misc_category: str | None = None    # what a Misc item is (e.g. Food); None for every other tag
     decision: str | None = None         # pass 3 only: MODEL_1 | MODEL_2 | HUMAN
     dispute_type: str | None = None     # pass 3 only
     disputed_point: str | None = None   # pass 3 only
@@ -177,6 +181,7 @@ def _from_review(review: dict) -> dict:
     unclear = review["verdict"] == "IGNORED" or (not name and (
         not _key(answer) or (_key(answer) == _key(NONE_OPTION) and is_alcoholic is not False)))
     return {"answer": answer, "brand_label_name": name, "is_alcoholic": is_alcoholic, "reason": explanation,
+            "misc_category": review.get("correct_misc_category"),
             "skip_reason": (explanation or "unclear") if unclear else ""}
 
 
@@ -209,6 +214,11 @@ def _result(options: list[str], decision: dict, sources: list[dict]) -> TagResul
         return reasons[n].get("reason", "") if n < len(reasons) else ""
 
     chosen = next((o for o in options if _key(o) == _key(answer)), None)
+    if chosen is None and " - " in answer and not is_misc(answer):
+        # Haiku sometimes echoes the question's "<item> - <name>" shape instead of the bare name.
+        tail = answer.rsplit(" - ", 1)[1].strip()
+        chosen = next((o for o in options if _key(o) == _key(tail)), None)
+        answer = chosen or tail
     judgements = [{"option": o, "matches": o == chosen, "reason": reason_for(n, o)} for n, o in enumerate(options)]
     result = TagResult(tag=None, is_alcoholic=is_alcoholic, suggested_name=name,
                        confidence=decision.get("confidence"), reason=decision.get("reason"),
@@ -223,11 +233,15 @@ def _result(options: list[str], decision: dict, sources: list[dict]) -> TagResul
         result.tag = result.selected_option = chosen
     elif is_misc(answer) or (_key(answer) == _key(NONE_OPTION) and is_alcoholic is False):
         result.tag = MISC_OPTION
+        result.misc_category = (decision.get("misc_category") or "").strip() or None
     elif _key(answer) == _key(NONE_OPTION) or (name and _key(answer) == _key(name)):
         if name:
             result.tag = name
         else:
             result.error = "No name fit and no Brand + Label name was suggested"
+    elif answer:
+        # Its own name in the answer field, instead of "None of the above" + brand_label_name.
+        result.tag = result.suggested_name = name or answer
     else:
         result.error = f"Chose '{answer}', which wasn't one of the names offered"
     return result

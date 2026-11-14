@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Liquor Product Tagger", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=[os.getenv("FRONTEND_URL") or "http://localhost:5175"],
+app.add_middleware(CORSMiddleware, allow_origins=[os.getenv("FRONTEND_URL") or "http://localhost:5176"],
                    allow_methods=["*"], allow_headers=["*"])
 
 
@@ -80,6 +80,7 @@ class KeyFile(BaseModel):
     output_price: float | None = None
     search_price: float | None = None
     base_url: str | None = None
+    api_name: str | None = None  # stored on every tagged row; defaults to name
 
 
 def _mask(key: str) -> str:
@@ -107,6 +108,7 @@ def post_key(body: KeyFile, user=Depends(current_user)):
     if body.provider not in DEFAULT_MODELS:
         raise HTTPException(400, f"provider: use {', '.join(DEFAULT_MODELS)}")
     data = {k: v for k, v in body.model_dump().items() if k != "name" and v not in (None, "")}
+    data.setdefault("api_name", body.name)
     SECRETS.mkdir(parents=True, exist_ok=True)
     path = SECRETS / f"{body.name}.json"
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
@@ -134,10 +136,34 @@ def get_stats(request: Request, user=Depends(current_user)):
     with s.engine.connect() as conn:
         counts = {t: conn.execute(text(f"SELECT count(*) FROM {t}")).scalar()
                   for t in ("llm_tags", "llm_retags", "llm_final_tags", "csv_records")}
+        passes = [dict(conn.execute(text(
+            f"SELECT count(*) AS total, count(tag) AS tagged, "
+            f"count(*) FILTER (WHERE tag IS NULL AND skip_reason IS NOT NULL) AS skipped, "
+            f"count(error) AS errors FROM {t}")).one()._mapping) for t in ("llm_tags", "llm_retags", "llm_final_tags")]
+        final = dict(conn.execute(text(
+            "SELECT count(*) AS total, "
+            "count(*) FILTER (WHERE final_tag = 'Misc - Not a Liquor') AS misc, "
+            "count(*) FILTER (WHERE final_tag IS NOT NULL AND final_tag <> 'Misc - Not a Liquor') AS named, "
+            "count(*) FILTER (WHERE status LIKE 'waiting%') AS waiting, "
+            "count(*) FILTER (WHERE status IN ('pass 3 failed', 'pass 3 skipped') "
+            "OR status LIKE 'skipped%') AS no_tag "
+            "FROM final_results")).one()._mapping)
+        pending = dict(conn.execute(text(
+            "SELECT (SELECT count(*) FROM topk_options o WHERE NOT EXISTS "
+            "(SELECT 1 FROM llm_tags t WHERE t.source_row_id = o.source_row_id)) AS pass_1, "
+            "count(*) FILTER (WHERE status = 'waiting for pass 2') AS pass_2, "
+            "count(*) FILTER (WHERE status = 'waiting for pass 3') AS pass_3 FROM final_results")).one()._mapping)
+        apis = [dict(r._mapping) for r in conn.execute(text(
+            "SELECT api_name, count(*) AS total, count(*) FILTER (WHERE pass = 1) AS pass_1, "
+            "count(*) FILTER (WHERE pass = 2) AS pass_2, count(*) FILTER (WHERE pass = 3) AS pass_3, "
+            "count(error) AS errors FROM ("
+            "SELECT api_name, error, 1 AS pass FROM llm_tags UNION ALL "
+            "SELECT api_name, error, 2 FROM llm_retags UNION ALL "
+            "SELECT api_name, error, 3 FROM llm_final_tags) x GROUP BY api_name ORDER BY total DESC"))]
         decisions = [dict(r._mapping) for r in conn.execute(
             text("SELECT status AS decision, count(*) AS n FROM final_results GROUP BY status ORDER BY n DESC"))]
     settings = load_settings()
-    return {"source": s.source_stats(), "counts": counts, "decisions": decisions,
+    return {"source": s.source_stats(), "counts": counts, "passes": passes, "final": final, "pending": pending, "apis": apis, "decisions": decisions,
             "athena": {"database": settings.athena_database, "table": settings.athena_table,
                        "region": settings.aws_region, "workgroup": settings.athena_workgroup}}
 
@@ -251,6 +277,13 @@ def _has_base_value(conn, name: str) -> bool:
                                   "AND table_name = :n AND column_name = 'base_value'"), {"n": name}).first())
 
 
+HIDDEN_COLUMNS = {"api_key"}  # stored for debugging failed rows; never sent to the browser
+
+
+def _visible(columns) -> list[int]:
+    return [i for i, c in enumerate(columns) if c not in HIDDEN_COLUMNS]
+
+
 @app.get("/api/results")
 def get_result_names(request: Request, user=Depends(current_user)):
     with store(request).engine.connect() as conn:
@@ -269,12 +302,16 @@ def get_results(name: str, request: Request, q: str = "", offset: int = 0,
         params = {"q": f"%{q}%", "offset": max(offset, 0), "limit": limit}
         total = conn.execute(text(f"SELECT count(*) FROM {rel} {where}"), params).scalar()
         result = conn.execute(text(f"SELECT * FROM {rel} {where} ORDER BY 1 OFFSET :offset LIMIT :limit"), params)
-        return {"columns": list(result.keys()), "rows": [list(r) for r in result], "total": total}
+        columns = list(result.keys())  # RMKeyView isn't indexable
+        keep = _visible(columns)
+        return {"columns": [columns[i] for i in keep], "rows": [[r[i] for i in keep] for r in result],
+                "total": total}
 
 
 @app.get("/api/results/{name}/csv")
-def get_results_csv(name: str, request: Request, user=Depends(current_user)):
-    """The whole table or view as CSV, like `export`: arrays joined with ' | ', JSON columns as JSON."""
+def get_results_csv(name: str, request: Request, q: str = "", no_errors: bool = False, user=Depends(current_user)):
+    """The table or view as CSV, like `export`: arrays joined with ' | ', JSON columns as JSON. `q` filters like the page;
+    `no_errors` (final_results only) leaves out rows where any pass returned an error."""
     engine = store(request).engine
 
     def rows():
@@ -282,14 +319,23 @@ def get_results_csv(name: str, request: Request, user=Depends(current_user)):
         writer = csv.writer(buffer)
         with engine.connect() as conn:
             rel = _relation(conn, name)
-            result = conn.execute(text(f"SELECT * FROM {rel} ORDER BY 1").execution_options(yield_per=2000))
-            writer.writerow(result.keys())
+            conditions = ["base_value ILIKE :q"] if q and _has_base_value(conn, rel) else []
+            if no_errors and rel == "final_results":
+                conditions.append("status <> 'pass 3 failed' AND NOT EXISTS (" + " UNION ALL ".join(
+                    f"SELECT 1 FROM {t} e WHERE e.source_row_id = final_results.source_row_id AND e.error IS NOT NULL"
+                    for t in ("llm_tags", "llm_retags", "llm_final_tags")) + ")")
+            where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+            result = conn.execute(text(f"SELECT * FROM {rel} {where} ORDER BY 1").execution_options(yield_per=2000),
+                                  {"q": f"%{q}%"})
+            columns = list(result.keys())
+            keep = _visible(columns)
+            writer.writerow([columns[i] for i in keep])
             yield buffer.getvalue()
             for r in result:
                 buffer.seek(0), buffer.truncate()
                 writer.writerow([" | ".join(v) if isinstance(v, list) and all(isinstance(x, str) for x in v)
                                  else json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v
-                                 for v in r])
+                                 for v in (r[i] for i in keep)])
                 yield buffer.getvalue()
 
     return StreamingResponse(rows(), media_type="text/csv",
